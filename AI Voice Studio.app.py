@@ -8,24 +8,21 @@ from pypdf import PdfReader
 from docx import Document
 import tempfile
 import io
+import os
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="AI Voice Studio", layout="wide")
 
-# ---------- CUSTOM CSS ----------
+# ---------- UI ----------
 st.markdown("""
 <style>
-body {background-color: #0f172a;}
-h1, h2, h3 {color: white;}
+body {background-color:#0f172a;color:white;}
 .stButton>button {
-    background-color: #14b8a6;
-    color: white;
-    border-radius: 8px;
-}
-.sidebar .sidebar-content {
-    background-color: #020617;
+    background-color:#14b8a6;
+    color:white;
+    border-radius:8px;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -38,23 +35,15 @@ if "usage" not in st.session_state:
 
 # ---------- SIDEBAR ----------
 st.sidebar.title("🎙️ AI Voice Studio")
-
-page = st.sidebar.radio(
-    "Navigation",
-    [
-        "🎤 Playground",
-        "🎧 Voice to Text",
-        "🌍 Translator",
-        "📄 File Reader",
-        "🎬 Video Reader",
-        "🧾 Text to PDF",
-        "📊 Dashboard"
-    ]
-)
-
-st.sidebar.markdown("---")
-st.sidebar.write("⚡ Powered by AI")
-st.sidebar.write("Free Version")
+page = st.sidebar.radio("Menu", [
+    "🎤 Playground",
+    "🎧 Voice to Text",
+    "🌍 Translator",
+    "📄 File Reader",
+    "🎬 Video Reader",
+    "🧾 Text to PDF",
+    "📊 Dashboard"
+])
 
 # ---------- HELPERS ----------
 def detect_lang(text):
@@ -63,28 +52,52 @@ def detect_lang(text):
     except:
         return "en"
 
-def tts(text, lang):
-    fp = io.BytesIO()
-    gTTS(text=text, lang=lang).write_to_fp(fp)
-    fp.seek(0)
-    return fp
+def safe_tts(text, lang):
+    try:
+        fp = io.BytesIO()
+        gTTS(text=text, lang=lang).write_to_fp(fp)
+        fp.seek(0)
+        return fp
+    except Exception as e:
+        return None
 
-def translate(text, target):
-    return GoogleTranslator(source='auto', target=target).translate(text)
+def safe_translate(text, target):
+    try:
+        return GoogleTranslator(source='auto', target=target).translate(text)
+    except:
+        return "Translation failed"
 
-def speech_to_text(path):
-    r = sr.Recognizer()
-    with sr.AudioFile(path) as source:
-        audio = r.record(source)
-    return r.recognize_google(audio)
+def safe_stt(audio_path):
+    try:
+        r = sr.Recognizer()
+        with sr.AudioFile(audio_path) as source:
+            audio = r.record(source)
+        return r.recognize_google(audio)
+    except Exception as e:
+        return f"Error: {str(e)}"
+
+def safe_audio_convert(path):
+    try:
+        sound = AudioSegment.from_file(path)
+        wav_path = path + ".wav"
+        sound.export(wav_path, format="wav")
+        return wav_path
+    except:
+        return None
 
 def read_pdf(file):
-    reader = PdfReader(file)
-    return "".join([p.extract_text() or "" for p in reader.pages])
+    try:
+        reader = PdfReader(file)
+        return "".join([p.extract_text() or "" for p in reader.pages])
+    except:
+        return ""
 
 def read_docx(file):
-    doc = Document(file)
-    return "\n".join([p.text for p in doc.paragraphs])
+    try:
+        doc = Document(file)
+        return "\n".join([p.text for p in doc.paragraphs])
+    except:
+        return ""
 
 def create_pdf(text):
     buffer = io.BytesIO()
@@ -103,23 +116,31 @@ if page == "🎤 Playground":
     col1, col2 = st.columns([3,1])
 
     with col1:
-        if st.button("🔊 Generate Voice"):
-            lang = detect_lang(text)
-            audio = tts(text, lang)
+        if st.button("Generate Voice"):
+            if not text.strip():
+                st.warning("Enter text first")
+            else:
+                lang = detect_lang(text)
+                audio = safe_tts(text, lang)
 
-            st.audio(audio)
-            st.download_button("Download", audio, "voice.mp3")
+                if audio:
+                    st.audio(audio)
+                    st.download_button("Download", audio, "voice.mp3")
 
-            st.session_state.history.append(text[:50])
-            st.session_state.usage += len(text)
+                    st.session_state.history.append(text[:50])
+                    st.session_state.usage += len(text)
+                else:
+                    st.error("Voice generation failed")
 
     with col2:
-        lang_select = st.selectbox("Language", ["auto","en","ur","hi","ar"])
-
-        if st.button("🌍 Translate"):
-            if lang_select != "auto":
-                text = translate(text, lang_select)
-                st.text_area("Translated", text)
+        lang = st.selectbox("Translate", ["none","en","ur","hi","ar"])
+        if st.button("Translate"):
+            if text.strip():
+                if lang != "none":
+                    result = safe_translate(text, lang)
+                    st.text_area("Result", result)
+            else:
+                st.warning("Enter text")
 
 # ---------- VOICE TO TEXT ----------
 elif page == "🎧 Voice to Text":
@@ -128,28 +149,37 @@ elif page == "🎧 Voice to Text":
     file = st.file_uploader("Upload audio", type=["wav","mp3","ogg"])
 
     if file:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(file.read())
-            path = tmp.name
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(file.read())
+                path = tmp.name
 
-        sound = AudioSegment.from_file(path)
-        wav_path = path + ".wav"
-        sound.export(wav_path, format="wav")
+            wav = safe_audio_convert(path)
 
-        if st.button("Convert"):
-            text = speech_to_text(wav_path)
-            st.text_area("Result", text)
+            if not wav:
+                st.error("Audio conversion failed (ffmpeg issue)")
+            else:
+                if st.button("Convert"):
+                    result = safe_stt(wav)
+                    st.text_area("Result", result)
+                    st.session_state.history.append("Voice→Text")
+
+        except:
+            st.error("Unsupported file")
 
 # ---------- TRANSLATOR ----------
 elif page == "🌍 Translator":
     st.title("🌍 Translator")
 
     text = st.text_area("Enter text")
-    lang = st.selectbox("Target Language", ["en","ur","hi","ar","fr"])
+    lang = st.selectbox("Language", ["en","ur","hi","ar","fr"])
 
     if st.button("Translate"):
-        result = translate(text, lang)
-        st.text_area("Result", result)
+        if text.strip():
+            result = safe_translate(text, lang)
+            st.text_area("Result", result)
+        else:
+            st.warning("Enter text")
 
 # ---------- FILE READER ----------
 elif page == "📄 File Reader":
@@ -165,9 +195,12 @@ elif page == "📄 File Reader":
         elif ext == "docx":
             content = read_docx(file)
         else:
-            content = file.read().decode()
+            content = file.read().decode(errors="ignore")
 
-        st.text_area("Content", content[:2000])
+        if content:
+            st.text_area("Content", content[:2000])
+        else:
+            st.warning("No readable content")
 
 # ---------- VIDEO READER ----------
 elif page == "🎬 Video Reader":
@@ -176,17 +209,23 @@ elif page == "🎬 Video Reader":
     video = st.file_uploader("Upload video", type=["mp4","mov","avi"])
 
     if video:
-        with tempfile.NamedTemporaryFile(delete=False) as tmp:
-            tmp.write(video.read())
-            path = tmp.name
+        try:
+            with tempfile.NamedTemporaryFile(delete=False) as tmp:
+                tmp.write(video.read())
+                path = tmp.name
 
-        audio = AudioSegment.from_file(path)
-        audio_path = path + ".wav"
-        audio.export(audio_path, format="wav")
+            wav = safe_audio_convert(path)
 
-        if st.button("Extract Text"):
-            text = speech_to_text(audio_path)
-            st.text_area("Transcript", text)
+            if not wav:
+                st.error("Video conversion failed")
+            else:
+                if st.button("Extract Text"):
+                    result = safe_stt(wav)
+                    st.text_area("Transcript", result)
+                    st.session_state.history.append("Video→Text")
+
+        except:
+            st.error("Unsupported video")
 
 # ---------- TEXT TO PDF ----------
 elif page == "🧾 Text to PDF":
@@ -195,24 +234,21 @@ elif page == "🧾 Text to PDF":
     text = st.text_area("Enter text")
 
     if st.button("Generate PDF"):
-        pdf = create_pdf(text)
-
-        st.download_button(
-            "Download PDF",
-            pdf,
-            "output.pdf",
-            mime="application/pdf"
-        )
+        if text.strip():
+            pdf = create_pdf(text)
+            st.download_button("Download PDF", pdf, "output.pdf")
+            st.session_state.history.append("PDF created")
+        else:
+            st.warning("Enter text")
 
 # ---------- DASHBOARD ----------
 elif page == "📊 Dashboard":
     st.title("📊 Dashboard")
 
     col1, col2 = st.columns(2)
-
     col1.metric("Characters Used", st.session_state.usage)
     col2.metric("Total Actions", len(st.session_state.history))
 
-    st.write("### Recent Activity")
-    for h in st.session_state.history[-5:]:
+    st.write("### Activity")
+    for h in st.session_state.history[-10:]:
         st.write("-", h)
