@@ -4,12 +4,15 @@ from langdetect import detect
 from deep_translator import GoogleTranslator
 import speech_recognition as sr
 from pydub import AudioSegment
+from pypdf import PdfReader
+from docx import Document
 import tempfile
 import io
-import datetime
+from reportlab.platypus import SimpleDocTemplate, Paragraph
+from reportlab.lib.styles import getSampleStyleSheet
 
 # ---------- CONFIG ----------
-st.set_page_config(page_title="AI Voice Studio Pro", layout="wide")
+st.set_page_config(page_title="AI Studio Pro", layout="wide")
 
 # ---------- SESSION ----------
 if "history" not in st.session_state:
@@ -18,108 +21,154 @@ if "usage" not in st.session_state:
     st.session_state.usage = 0
 
 # ---------- HEADER ----------
-st.title("🎙️ AI Voice Studio PRO")
-st.caption("Advanced Voice AI Toolkit")
+st.title("🎙️ AI Studio PRO")
+st.caption("Voice | Text | Video | PDF Tools in One App")
 
 # ---------- HELPERS ----------
-
 def detect_lang(text):
     try:
         return detect(text)
     except:
         return "en"
 
-def translate_text(text, target):
-    try:
-        return GoogleTranslator(source='auto', target=target).translate(text)
-    except:
-        return text
-
-def generate_tts(text, lang):
-    tts = gTTS(text=text, lang=lang)
+def tts(text, lang):
     fp = io.BytesIO()
-    tts.write_to_fp(fp)
+    gTTS(text=text, lang=lang).write_to_fp(fp)
     fp.seek(0)
     return fp
 
-def generate_srt(text):
-    lines = text.split(".")
-    srt = ""
-    for i, line in enumerate(lines):
-        start = i * 2
-        end = start + 2
-        srt += f"{i+1}\n00:00:{start:02d} --> 00:00:{end:02d}\n{line.strip()}\n\n"
-    return srt
+def translate(text, target):
+    return GoogleTranslator(source='auto', target=target).translate(text)
 
-# ---------- SIDEBAR ----------
-st.sidebar.title("⚙️ Controls")
+def speech_to_text(path):
+    r = sr.Recognizer()
+    with sr.AudioFile(path) as source:
+        audio = r.record(source)
+    return r.recognize_google(audio)
 
-voice_style = st.sidebar.selectbox(
-    "Voice Style",
-    ["Normal", "Male", "Female", "Deep", "Fast"]
-)
+def read_pdf(file):
+    text = ""
+    reader = PdfReader(file)
+    for p in reader.pages:
+        text += p.extract_text() or ""
+    return text
 
-target_lang = st.sidebar.selectbox(
-    "Translate To",
-    ["None", "en", "ur", "hi", "ar"]
-)
+def read_docx(file):
+    doc = Document(file)
+    return "\n".join([p.text for p in doc.paragraphs])
 
-speed = st.sidebar.slider("Playback Speed", 0.5, 2.0, 1.0)
+def create_pdf(text):
+    buffer = io.BytesIO()
+    doc = SimpleDocTemplate(buffer)
+    styles = getSampleStyleSheet()
+    content = [Paragraph(text, styles["Normal"])]
+    doc.build(content)
+    buffer.seek(0)
+    return buffer
 
-# ---------- MAIN ----------
-tabs = st.tabs(["🎤 Voice Generator", "📜 Subtitle Tool", "📊 Dashboard"])
+# ---------- TABS ----------
+tabs = st.tabs([
+    "🔊 Text→Voice",
+    "🎤 Voice→Text",
+    "🌍 Translator",
+    "📄 File Reader",
+    "🎬 Video Reader",
+    "🧾 Text→PDF",
+    "📊 Dashboard"
+])
 
-# ---------- TAB 1 ----------
+# ---------- TEXT TO VOICE ----------
 with tabs[0]:
-    st.subheader("Text → Voice + AI Tools")
+    text = st.text_area("Enter text")
 
-    text = st.text_area("Enter your script")
+    if st.button("Generate Voice"):
+        lang = detect_lang(text)
+        audio = tts(text, lang)
 
-    col1, col2, col3 = st.columns(3)
+        st.audio(audio)
+        st.download_button("Download", audio, "voice.mp3")
 
-    with col1:
-        if st.button("✨ Improve Text"):
-            text = text.capitalize() + "..."
-            st.success("Improved!")
+        st.session_state.history.append(text)
+        st.session_state.usage += len(text)
 
-    with col2:
-        if st.button("🌍 Translate"):
-            if target_lang != "None":
-                text = translate_text(text, target_lang)
-                st.success("Translated!")
-
-    with col3:
-        if st.button("🔊 Generate Voice"):
-            lang = detect_lang(text)
-
-            audio = generate_tts(text, lang)
-
-            st.audio(audio)
-
-            st.download_button("Download", audio, "voice.mp3")
-
-            # Save history
-            st.session_state.history.append(text)
-            st.session_state.usage += len(text)
-
-# ---------- TAB 2 ----------
+# ---------- VOICE TO TEXT ----------
 with tabs[1]:
-    st.subheader("Subtitle Generator (SRT)")
+    audio_file = st.file_uploader("Upload audio", type=["wav","mp3","ogg"])
 
-    sub_text = st.text_area("Enter script for subtitles")
+    if audio_file:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(audio_file.read())
+            path = tmp.name
 
-    if st.button("Generate SRT"):
-        srt = generate_srt(sub_text)
-        st.code(srt)
+        sound = AudioSegment.from_file(path)
+        wav_path = path + ".wav"
+        sound.export(wav_path, format="wav")
 
-        st.download_button("Download SRT", srt, "subtitles.srt")
+        if st.button("Convert"):
+            text = speech_to_text(wav_path)
+            st.text_area("Result", text)
 
-# ---------- TAB 3 ----------
+# ---------- TRANSLATOR ----------
 with tabs[2]:
-    st.subheader("User Dashboard")
+    text = st.text_area("Enter text to translate")
 
-    st.metric("Total Characters Used", st.session_state.usage)
+    lang = st.selectbox("Target Language", ["en","ur","hi","ar","fr"])
+
+    if st.button("Translate"):
+        result = translate(text, lang)
+        st.text_area("Translated", result)
+
+# ---------- FILE READER ----------
+with tabs[3]:
+    file = st.file_uploader("Upload PDF/DOCX/TXT", type=["pdf","docx","txt"])
+
+    if file:
+        ext = file.name.split(".")[-1]
+
+        if ext == "pdf":
+            content = read_pdf(file)
+        elif ext == "docx":
+            content = read_docx(file)
+        else:
+            content = file.read().decode()
+
+        st.text_area("Content", content[:2000])
+
+# ---------- VIDEO READER ----------
+with tabs[4]:
+    video = st.file_uploader("Upload video", type=["mp4","mov","avi"])
+
+    if video:
+        with tempfile.NamedTemporaryFile(delete=False) as tmp:
+            tmp.write(video.read())
+            path = tmp.name
+
+        audio = AudioSegment.from_file(path)
+        audio_path = path + ".wav"
+        audio.export(audio_path, format="wav")
+
+        if st.button("Extract Text"):
+            text = speech_to_text(audio_path)
+            st.text_area("Transcript", text)
+
+# ---------- TEXT TO PDF ----------
+with tabs[5]:
+    text = st.text_area("Enter text for PDF")
+
+    if st.button("Generate PDF"):
+        pdf = create_pdf(text)
+
+        st.download_button(
+            "Download PDF",
+            pdf,
+            "output.pdf",
+            mime="application/pdf"
+        )
+
+# ---------- DASHBOARD ----------
+with tabs[6]:
+    st.metric("Characters Used", st.session_state.usage)
 
     st.write("### History")
-    for item in st.session_state.history[-5:]:
-        st.write("-", item[:50])
+    for h in st.session_state.history[-5:]:
+        st.write("-", h[:50])
