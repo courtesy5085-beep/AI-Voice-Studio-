@@ -10,23 +10,22 @@ import tempfile
 import io
 from reportlab.platypus import SimpleDocTemplate, Paragraph
 from reportlab.lib.styles import getSampleStyleSheet
-import datetime
 
 # ---------- CONFIG ----------
 st.set_page_config(page_title="AI Voice Studio", layout="wide")
 
-# ---------- CUSTOM UI ----------
+# ---------- CUSTOM CSS ----------
 st.markdown("""
 <style>
-.main {background-color: #0f172a;}
-h1, h2, h3, h4 {color: #e2e8f0;}
+body {background-color: #0f172a;}
+h1, h2, h3 {color: white;}
 .stButton>button {
     background-color: #14b8a6;
     color: white;
     border-radius: 8px;
 }
-.stTextArea textarea {
-    border-radius: 10px;
+.sidebar .sidebar-content {
+    background-color: #020617;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -36,12 +35,26 @@ if "history" not in st.session_state:
     st.session_state.history = []
 if "usage" not in st.session_state:
     st.session_state.usage = 0
-if "files" not in st.session_state:
-    st.session_state.files = 0
 
-# ---------- HEADER ----------
-st.title("🎙️ AI Voice Studio")
-st.caption("All-in-One Voice, Text, Video & PDF AI Platform")
+# ---------- SIDEBAR ----------
+st.sidebar.title("🎙️ AI Voice Studio")
+
+page = st.sidebar.radio(
+    "Navigation",
+    [
+        "🎤 Playground",
+        "🎧 Voice to Text",
+        "🌍 Translator",
+        "📄 File Reader",
+        "🎬 Video Reader",
+        "🧾 Text to PDF",
+        "📊 Dashboard"
+    ]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.write("⚡ Powered by AI")
+st.sidebar.write("Free Version")
 
 # ---------- HELPERS ----------
 def detect_lang(text):
@@ -81,36 +94,36 @@ def create_pdf(text):
     buffer.seek(0)
     return buffer
 
-# ---------- TABS ----------
-tabs = st.tabs([
-    "🔊 Text→Voice",
-    "🎤 Voice→Text",
-    "🌍 Translator",
-    "📄 File Reader",
-    "🎬 Video Reader",
-    "🧾 Text→PDF",
-    "📊 Dashboard"
-])
-
-# ---------- TEXT TO VOICE ----------
-with tabs[0]:
-    st.subheader("Text to Voice")
+# ---------- PLAYGROUND ----------
+if page == "🎤 Playground":
+    st.title("🎤 Voice Playground")
 
     text = st.text_area("Enter text")
 
-    if st.button("Generate Voice"):
-        lang = detect_lang(text)
-        audio = tts(text, lang)
+    col1, col2 = st.columns([3,1])
 
-        st.audio(audio)
-        st.download_button("Download Audio", audio, "voice.mp3")
+    with col1:
+        if st.button("🔊 Generate Voice"):
+            lang = detect_lang(text)
+            audio = tts(text, lang)
 
-        st.session_state.history.append(f"TTS: {text[:50]}")
-        st.session_state.usage += len(text)
+            st.audio(audio)
+            st.download_button("Download", audio, "voice.mp3")
+
+            st.session_state.history.append(text[:50])
+            st.session_state.usage += len(text)
+
+    with col2:
+        lang_select = st.selectbox("Language", ["auto","en","ur","hi","ar"])
+
+        if st.button("🌍 Translate"):
+            if lang_select != "auto":
+                text = translate(text, lang_select)
+                st.text_area("Translated", text)
 
 # ---------- VOICE TO TEXT ----------
-with tabs[1]:
-    st.subheader("Voice to Text")
+elif page == "🎧 Voice to Text":
+    st.title("🎧 Voice to Text")
 
     file = st.file_uploader("Upload audio", type=["wav","mp3","ogg"])
 
@@ -127,25 +140,20 @@ with tabs[1]:
             text = speech_to_text(wav_path)
             st.text_area("Result", text)
 
-            st.session_state.history.append("Voice → Text")
-            st.session_state.files += 1
-
 # ---------- TRANSLATOR ----------
-with tabs[2]:
-    st.subheader("Translator")
+elif page == "🌍 Translator":
+    st.title("🌍 Translator")
 
     text = st.text_area("Enter text")
-    lang = st.selectbox("Target", ["en","ur","hi","ar","fr"])
+    lang = st.selectbox("Target Language", ["en","ur","hi","ar","fr"])
 
     if st.button("Translate"):
         result = translate(text, lang)
         st.text_area("Result", result)
 
-        st.session_state.history.append("Translation used")
-
 # ---------- FILE READER ----------
-with tabs[3]:
-    st.subheader("File Reader")
+elif page == "📄 File Reader":
+    st.title("📄 File Reader")
 
     file = st.file_uploader("Upload file", type=["pdf","docx","txt"])
 
@@ -161,11 +169,9 @@ with tabs[3]:
 
         st.text_area("Content", content[:2000])
 
-        st.session_state.files += 1
-
 # ---------- VIDEO READER ----------
-with tabs[4]:
-    st.subheader("Video to Text")
+elif page == "🎬 Video Reader":
+    st.title("🎬 Video to Text")
 
     video = st.file_uploader("Upload video", type=["mp4","mov","avi"])
 
@@ -182,12 +188,9 @@ with tabs[4]:
             text = speech_to_text(audio_path)
             st.text_area("Transcript", text)
 
-            st.session_state.history.append("Video → Text")
-            st.session_state.files += 1
-
 # ---------- TEXT TO PDF ----------
-with tabs[5]:
-    st.subheader("Text to PDF")
+elif page == "🧾 Text to PDF":
+    st.title("🧾 Text to PDF")
 
     text = st.text_area("Enter text")
 
@@ -201,33 +204,15 @@ with tabs[5]:
             mime="application/pdf"
         )
 
-        st.session_state.history.append("PDF Generated")
-
 # ---------- DASHBOARD ----------
-with tabs[6]:
-    st.subheader("📊 Dashboard")
+elif page == "📊 Dashboard":
+    st.title("📊 Dashboard")
 
-    col1, col2, col3 = st.columns(3)
+    col1, col2 = st.columns(2)
 
     col1.metric("Characters Used", st.session_state.usage)
-    col2.metric("Files Processed", st.session_state.files)
-    col3.metric("Total Actions", len(st.session_state.history))
+    col2.metric("Total Actions", len(st.session_state.history))
 
-    st.divider()
-
-    st.write("### 📈 Activity Timeline")
-
-    for i, item in enumerate(reversed(st.session_state.history[-10:])):
-        st.write(f"{i+1}. {item}")
-
-    st.divider()
-
-    st.write("### 🚀 Features Available")
-    st.markdown("""
-    - 🔊 Text to Voice  
-    - 🎤 Voice to Text  
-    - 🌍 Translation  
-    - 📄 File Reader  
-    - 🎬 Video Reader  
-    - 🧾 PDF Generator  
-    """)
+    st.write("### Recent Activity")
+    for h in st.session_state.history[-5:]:
+        st.write("-", h)
