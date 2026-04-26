@@ -1,8 +1,7 @@
 streamlit
 gtts
-SpeechRecognition
 langdetect
-pypdf
-python-docx
+deep-translator
+SpeechRecognition
 pydub
 ffmpeg-python
