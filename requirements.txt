@@ -4,4 +4,7 @@ langdetect
 deep-translator
 SpeechRecognition
 pydub
+pypdf
+python-docx
+reportlab
 ffmpeg-python
